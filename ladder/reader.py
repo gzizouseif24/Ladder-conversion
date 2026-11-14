@@ -35,6 +35,9 @@ def looks_like_csv(text: str) -> bool:
 
 
 def read_file(path: str) -> List[Instr]:
+    if path.lower().endswith(".pdf"):
+        from .pdf_reader import read_pdf
+        return read_pdf(path)
     with open(path, "rb") as f:
         text = decode(f.read())
     if path.lower().endswith((".csv", ".tsv")) or looks_like_csv(text):

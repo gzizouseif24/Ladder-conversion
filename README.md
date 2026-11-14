@@ -6,10 +6,14 @@ The first supported dialect is **Mitsubishi (GX Developer / GX Works, FX/A/Q ser
 ```bash
 python3 -m ladder examples/sample_fx.txt              # writes examples/sample_fx.html
 python3 -m ladder examples/sample_fx.txt --text       # text ladder in the terminal
+python3 -m ladder program.pdf --list                  # show instructions read from a PDF
 python3 -m unittest                                   # tests (no dependencies)
 ```
 
 ## Input
+- **Printed PDF** from the vendor software (print the *list* view, not the ladder view, to PDF).
+  Needs `pip install pypdf`. Run with `--list` first to check what was read from the PDF.
+  Scanned PDFs (images) have no text and are not supported yet.
 - Plain text, one instruction per line (`LD X000`, optionally prefixed with a step number; `;` starts a comment).
 - GX Developer / GX Works CSV exports from list mode (comma or tab separated, UTF-8/UTF-16/Shift-JIS).
 

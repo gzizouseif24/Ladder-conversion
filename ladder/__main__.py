@@ -14,12 +14,21 @@ from .render_text import render as render_text
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="ladder", description="Convert a Mitsubishi instruction list to ladder.")
-    ap.add_argument("input", help="instruction list (.txt) or GX Developer CSV export")
+    ap.add_argument("input", help="instruction list: .txt, GX CSV export, or printed .pdf")
     ap.add_argument("-o", "--output", help="write an HTML page (default: <input>.html)")
     ap.add_argument("--text", action="store_true", help="print a text ladder to the terminal instead")
+    ap.add_argument("--list", action="store_true",
+                    help="only print the instructions read from the input (check PDF extraction)")
     args = ap.parse_args(argv)
 
-    rungs = build(read_file(args.input))
+    instrs = read_file(args.input)
+    if args.list:
+        for ins in instrs:
+            step = "" if ins.step is None else ins.step
+            print(f"{step:>6}  {ins}")
+        print(f"-- {len(instrs)} instructions")
+        return 0
+    rungs = build(instrs)
     layouts = layout_all(rungs)
     if args.text:
         sys.stdout.write(render_text(layouts))

@@ -69,9 +69,11 @@ class Instr:
     args: List[str]
     step: Optional[int]
     line: int = 0
+    comment: str = ""
 
     def __str__(self) -> str:
-        return " ".join([self.op] + self.args)
+        s = " ".join([self.op] + self.args)
+        return f"{s}    ; {self.comment}" if self.comment else s
 
 
 @dataclass
