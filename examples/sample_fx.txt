@@ -1,0 +1,52 @@
+; Sample Mitsubishi FX instruction list (GX Developer list mode)
+; self-holding motor start/stop
+LD   X000
+OR   Y000
+ANI  X001
+OUT  Y000
+; block logic with ORB / ANB
+LD   X002
+AND  X003
+LD   X004
+AND  X005
+ORB
+OR   X006
+LD   X007
+OR   X010
+ANB
+OUT  Y001
+; branch stack MPS / MRD / MPP
+LD   X011
+MPS
+AND  X012
+OUT  Y002
+MRD
+ANI  X013
+OUT  Y003
+MPP
+AND  X014
+OUT  Y004
+; continuous outputs
+LD   X020
+OUT  Y007
+AND  X021
+OUT  Y010
+OUT  M10
+; pulse, set/reset, timer
+LDP  X015
+SET  M0
+LD   M0
+OUT  T0 K50
+LD   T0
+RST  M0
+OUT  Y005
+; applied instruction + compare contact
+LD   M8000
+MOV  K100 D0
+LD=  D0 K100
+OUT  Y006
+P0
+LD   X022
+ANDF X023
+CJ   P1
+END
