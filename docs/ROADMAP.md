@@ -38,6 +38,9 @@ class Dialect:
 - Mitsubishi, Panasonic and Omron share the stack builder (`builder.py`) and differ only in reader and alias table.
 - Siemens plugs in its own builder.
 - Add `--dialect mitsubishi|panasonic|omron|siemens` to override auto-detection.
+- **Several input files / a folder** → one HTML page. Siemens prints one PDF per block (OB1, FC1, ...),
+  so `python -m ladder input/plant/` reads every PDF/AWL/TXT in the folder, gives each block its own
+  section with an index at the top (OB first, then FB, FC), and turns `CALL FC1` into a link.
 - **Done when:** all current tests pass unchanged and the BVM793-26 output is identical.
 
 ## Step 2: Omron (CX-Programmer mnemonics)
@@ -83,8 +86,11 @@ Siemens programs are split into **blocks** (OB, FC, FB) and **networks**. A netw
 rung, but rungs never cross networks, which helps.
 
 **Input**
-- **Best:** STEP 7 "Generate source" → `.AWL` text file. Clean, has block and network headers, symbols and comments.
-- **Also:** PDF print of the STL editor (same reader approach as the other dialects).
+- **Best:** STEP 7 v5.x LAD/STL editor → *File → Generate Source…* → select all blocks → **one `.AWL`
+  text file for the whole program** (LAD blocks are written as STL too). TIA Portal (S7-300/400):
+  right-click blocks → *Generate source from blocks*. Clean text, has block and network headers,
+  symbols and comments. Know-how-protected blocks can't be exported (or printed).
+- **Also:** PDF prints of the STL editor, one PDF per block, read as a folder (see Step 1).
 - **Mnemonics:** English (A, AN, O, =, JC, L, T) **and German** (U, UN, O, =, SPB, L, T). An alias table maps German to English.
 
 **New builder: RLO with parentheses**
