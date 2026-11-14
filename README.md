@@ -1,39 +1,133 @@
 # Ladder conversion
 
-Converts PLC instruction-list code into ladder diagrams you can view.
+Turns PLC **instruction-list code** (the text form of a PLC program) into **ladder diagrams** you can read.
+You give it the program as a printed PDF, a text file or a CSV export. It produces an HTML page with one
+ladder drawing per rung, or a text version in the terminal.
 
-Supported dialects (detected automatically):
-- **Mitsubishi** (GX Developer / GX Works, FX/A/Q series): LD, AND, ANB, MPS, OUT, ...
-- **Panasonic** (FPWIN GR "Boolean" view, FP0/FP0R/FP-X/FP2 ...): ST, AN/, ORS, PSHS, DF, OT, F0 (MV), TML, ED, ...
+Useful when the only copy of a program is a printout in instruction-list form (Mitsubishi "list",
+Panasonic "Boolean", ...) and you want to read or check it as ladder, or rewrite it on another PLC.
 
-```bash
-python3 -m ladder examples/sample_fx.txt              # writes examples/sample_fx.html
-python3 -m ladder examples/sample_fx.txt --text       # text ladder in the terminal
-python3 -m ladder program.pdf --list                  # show instructions read from a PDF
-python3 -m unittest                                   # tests (no dependencies)
+```
+ ST   X 40                     |   X40       R130F
+ OR   R 401          ──►       |---| |---+---|/|-----------( R401 )---|
+ AN/  R 130F                   |   R401  |
+ OT   R 401                    |---| |---+
 ```
 
-## Input
-- **Printed PDF** from the vendor software (print the *list* view, not the ladder view, to PDF).
-  Needs `pip install pypdf`. Run with `--list` first to check what was read from the PDF.
-  Scanned PDFs (images) have no text and are not supported yet.
-- Plain text, one instruction per line (`LD X000`, optionally prefixed with a step number; `;` starts a comment).
-- GX Developer / GX Works CSV exports from list mode (comma or tab separated, UTF-8/UTF-16/Shift-JIS).
+## Supported PLCs
+
+The dialect is detected automatically.
+
+| Vendor | Software / view | Status |
+|---|---|---|
+| **Mitsubishi** FX / A / Q | GX Developer, GX Works (list mode) | ✅ |
+| **Panasonic** FP0 / FP0R / FP-X / FP2 ... | FPWIN GR ("Boolean" view) | ✅ tested on a real FP0R program (430 rungs) |
+| **Omron** CS / CJ / CP / C-series | CX-Programmer (mnemonics) | planned, see [docs/ROADMAP.md](docs/ROADMAP.md) |
+| **Siemens** S7-300/400, S5 | STEP 7 / STEP 5 (STL / AWL) | planned, see [docs/ROADMAP.md](docs/ROADMAP.md) |
+
+## Install
+
+Needs **Python 3.8+**. PDF input also needs `pypdf`:
+
+```bash
+git clone https://github.com/gzizouseif24/Ladder-conversion.git
+cd Ladder-conversion
+pip install -r requirements.txt
+```
+
+## Usage
+
+1. Print the program from the PLC software **in instruction-list view** (not ladder view) to PDF.
+   Use a "print to PDF" printer, not a scan: the PDF must contain text.
+2. Put the PDF in the `input/` folder. Git ignores it, so customer programs are never committed.
+3. Check what was read from the PDF:
+
+   ```bash
+   python -m ladder input/program.pdf --list
+   ```
+
+   You should see one line per instruction: step number, instruction and operands.
+   If instructions are missing or garbled, the print layout is new to the tool. Open an issue with one page of it.
+4. Convert:
+
+   ```bash
+   python -m ladder input/program.pdf
+   ```
+
+   This writes `input/program.html`. Open it in a browser. Every rung shows its step number, the drawing,
+   any warnings, and a collapsible copy of its instruction list for checking.
+
+Other options:
+
+```bash
+python -m ladder input/program.pdf --text           # text ladder in the terminal
+python -m ladder input/program.pdf -o out.html      # choose the output file
+python -m ladder examples/sample_fx.txt             # plain text input (one instruction per line)
+python -m ladder program.csv                        # GX Developer / GX Works CSV export
+```
+
+## Reading the output
+
+| Drawing | Meaning |
+|---|---|
+| `-| |-` | normally-open contact |
+| `-|/|-` | normally-closed contact |
+| `-|P|-` / `-|F|-` (arrows in HTML) | rising / falling edge contact (LDP, LDF ...) |
+| `[DF]` `[DF/]` `[MEP]` `[MEF]` | edge of the result so far (Panasonic DF, Mitsubishi MEP/MEF) |
+| `[>= DT100 K5]` | comparison contact |
+| `( Y0 )` | output coil (OUT / OT) |
+| `[SET M0]` `[MOV K100 D0]` `[TML 1003 K10]` | any other output or function instruction, shown as a box with its operands |
+| tall box with `up/down` `count` `reset` | instruction with several inputs (Panasonic F118 UDC, KP, CT, SR) |
+| rung label (e.g. `P0`, `SUB 1`) | jump pointer / subroutine / label before the rung |
+| ⚠ warning under a rung | the instruction list did something that could not be drawn exactly. Check that rung by hand |
+
+Two things look different from the vendor editor on purpose:
+
+- **OR / ORS right after an output.** Some PLCs let you keep building on the result after an output,
+  e.g. `ST T1006 / OT R1332 / OR R1366 / OT R1571`. Ladder can't draw that, so the contacts before the
+  first output are **drawn again** in parallel (`T1006` appears twice). The logic is the same.
+- **New logic inside an MPS/PSHS section.** An `LD`/`ST` from the left rail between `PSHS` and `POPS` is
+  drawn as its own line in the same rung.
 
 ## How it works
-1. `reader.py` – reads the instruction list.
-2. `builder.py` – simulates the block stack (LD/ANB/ORB) and branch stack (MPS/MRD/MPP) to build a
-   tree per rung: series/parallel contact logic plus the outputs that hang off it.
-3. `layout.py` – places the tree on a fixed grid, like GX's ladder editor (outputs aligned on the right).
-4. `render_text.py` / `render_svg.py` – draw the grid as text or as an HTML page with one SVG per rung.
+
+```
+ PDF / txt / csv ──► reader ──► instructions ──► builder ──► rung trees ──► layout ──► grid ──► text / HTML+SVG
+```
+
+| File | Job |
+|---|---|
+| `ladder/pdf_reader.py` | Pulls instructions out of a printed PDF: skips headers and footers, merges operands printed on the next line, keeps comments separate |
+| `ladder/reader.py` | Text and CSV input. Chooses the right reader |
+| `ladder/dialects.py` | Vendor instruction sets, mapped onto one common set (e.g. Panasonic `ST` = Mitsubishi `LD`), plus dialect detection |
+| `ladder/builder.py` | Runs the instruction list like the PLC does (block stack for ANB/ORB, branch stack for MPS/MRD/MPP) and builds a tree per rung |
+| `ladder/model.py` | The tree: contacts in series/parallel, branch points, outputs |
+| `ladder/layout.py` | Places the tree on a fixed grid like the vendor ladder editors, with outputs aligned on the right |
+| `ladder/render_text.py`, `ladder/render_svg.py` | Draw the grid as text or as SVG in an HTML page (light and dark mode) |
+
+Every renderer only maps grid cells to characters or pixels, so the geometry is worked out once in `layout.py`
+and lines always meet cleanly.
 
 ## Supported instructions
-LD/LDI/LDP/LDF/LDPI/LDFI, AND/ANI/ANDP/ANDF…, OR/ORI/ORP/ORF…, ANB, ORB, MPS/MRD/MPP, INV, MEP/MEF,
-compare contacts (`LD= D0 K10`, `ANDD>`, …), STL, pointers (`P0`), and any output/applied instruction
-(OUT, SET, RST, PLS, MOV, CJ, timers/counters with set values, …). END/FEND/RET… get their own rung.
 
-Panasonic: ST/ST//AN/AN//OR/OR/, ANS/ORS, PSHS/RDS/POPS, DF/DF/, compare contacts (`ST >=`, `STD<=`, ...),
-OT/SET/RST, timers (TML/TMR/TMX/TMY), F/P instructions with their operands, ED. Instructions with several
-inputs (KP, CT, SR, F118 UDC, F119 LRSR) are drawn as one box with one row per input.
+**Mitsubishi:** LD/LDI/LDP/LDF/LDPI/LDFI, AND/ANI/ANDP/ANDF..., OR/ORI/ORP/ORF..., ANB, ORB, MPS/MRD/MPP,
+INV, MEP/MEF, comparison contacts (`LD= D0 K10`, `ANDD>` ...), STL, pointers (`P0`), OUT/SET/RST/PLS/PLF,
+timers and counters with set values, and any applied instruction (MOV, CMP, CJ ...).
+END/FEND/RET get their own rung.
 
-Not yet: MC/MCR nesting display, step-ladder bus drawing, device comments.
+**Panasonic:** ST/ST/, AN/AN/, OR/OR/, ANS/ORS, PSHS/RDS/POPS, DF/DF//DFI, NOT, comparison contacts
+(`ST >=`, `STD<=` ...), OT/SET/RST/KP, timers TML/TMR/TMX/TMY, CT, SR, any `F`/`P` instruction with its
+operands (`F0 (MV)`, `F118 (UDC)` ...), ED/CNDE, labels (LBL, SUB, INT, SSTP). NOP is skipped.
+
+**Not yet:** MC/MCR (master control) drawn as a zone, step-ladder bus drawing, device comments/symbols
+next to contacts.
+
+## Development
+
+```bash
+python -m unittest          # all tests, no extra dependencies except pypdf for the PDF tests
+```
+
+Tests use made-up programs only. Real customer programs go in `input/` and stay out of git.
+
+Adding a PLC dialect: see [docs/ROADMAP.md](docs/ROADMAP.md).
