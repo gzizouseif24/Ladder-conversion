@@ -7,7 +7,8 @@ Primitives:
   ("contact", x, y, Contact)      occupies cells x .. x+contact.width
   ("hwire", x0, x1, y)            horizontal wire between cell boundaries
   ("vwire", x, y0, y1)            vertical wire on boundary x between rows
-  ("output", x, y, Output)        output box starting at boundary x (= output column)
+  ("output", x, y, Output[, rows]) output box starting at boundary x (= output column);
+                                  multi-input boxes also carry the row of every input
 """
 from __future__ import annotations
 
@@ -34,7 +35,8 @@ def expr_size(e) -> Tuple[int, int]:
 def logic_width(br: Branch) -> int:
     """Columns needed before the output column."""
     w, _ = expr_size(br.expr)
-    kids = [logic_width(c) for c in br.children if isinstance(c, Branch)]
+    kids = [logic_width(c) if isinstance(c, Branch) else
+            max((expr_size(e)[0] for e in c.inputs), default=0) for c in br.children]
     return w + max(kids, default=0)
 
 
@@ -78,7 +80,17 @@ def _place_branch(br: Branch, x, y, out_col, prims) -> int:
     rows = []
     for ch in br.children:
         rows.append(row)
-        if isinstance(ch, Output):
+        if isinstance(ch, Output) and ch.inputs:
+            in_rows = []
+            for e in ch.inputs:
+                ew, eh = expr_size(e)
+                _place_expr(e, cx, row, prims)
+                if cx + ew < out_col:
+                    prims.append(("hwire", cx + ew, out_col, row))
+                in_rows.append(row)
+                row += eh
+            prims.append(("output", out_col, in_rows[0], ch, in_rows))
+        elif isinstance(ch, Output):
             if cx < out_col:
                 prims.append(("hwire", cx, out_col, row))
             prims.append(("output", out_col, row, ch))

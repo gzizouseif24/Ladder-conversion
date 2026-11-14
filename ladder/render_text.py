@@ -20,6 +20,9 @@ _SYMBOL = {
 
 
 def _out_text(o) -> str:
+    if o.inputs:
+        first = o.input_names[0] + ": " if o.input_names else ""
+        return f"[{first}{o.text}]"
     return f"( {o.text} )" if o.is_coil else f"[{o.text}]"
 
 
@@ -55,17 +58,28 @@ def render_rung(lay: Layout, out_width: int = None) -> str:
         elif p[0] == "contact":
             _, x, y, c = p
             w = c.width * CELL
-            sym = f"[{c.text}]" if c.kind == "CMP" else _SYMBOL.get(c.kind, "| |")
+            if c.kind == "CMP" or (c.text and c.kind in ("MEP", "MEF", "INV")):
+                sym = f"[{c.text}]"
+            else:
+                sym = _SYMBOL.get(c.kind, "| |")
             cv.put(x * CELL, wl(y), "-" * (w + 1))
             cv.put(x * CELL + (w - len(sym)) // 2 + 1, wl(y), sym)
             label = c.device[: w - 2]
             cv.put(x * CELL + (w - len(label)) // 2 + 1, wl(y) - 1, label)
         elif p[0] == "output":
-            _, x, y, o = p
+            x, y, o = p[1], p[2], p[3]
             s = _out_text(o)
             col = x * CELL
             cv.put(col, wl(y), "-" * (rail - col))
             cv.put(col + 2, wl(y), s)
+            rows = p[4] if len(p) > 4 else [y]
+            for k, ry in enumerate(rows[1:], 1):
+                name = o.input_names[k] if k < len(o.input_names) else f"in{k + 1}"
+                cv.put(col, wl(ry), "-" * (rail - col))
+                cv.put(col + 2, wl(ry), f"[{name}:".ljust(len(s) - 1) + "]")
+            for ry in range(wl(rows[0]) + 1, wl(rows[-1])):
+                if ry % 2 == 0:
+                    cv.put(col + 2, ry, "|" + " " * (len(s) - 2) + "|")
     for p in lay.prims:
         if p[0] == "vwire":
             _, x, y0, y1 = p

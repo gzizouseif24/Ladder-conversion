@@ -24,7 +24,9 @@ class Contact:
 
     @property
     def width(self) -> int:
-        return 2 if self.kind == "CMP" else 1
+        if self.kind == "CMP":
+            return max(2, -(-(len(self.text) + 4) // 9))
+        return 1
 
 
 @dataclass
@@ -45,10 +47,14 @@ class Output:
     op: str
     args: List[str]
     step: Optional[int] = None
+    # Instructions with several inputs (Panasonic KP, CT, F118 UDC ...): one logic expression
+    # per input, drawn on its own row into a tall box. Empty for normal outputs.
+    inputs: list = field(default_factory=list)
+    input_names: List[str] = field(default_factory=list)
 
     @property
     def is_coil(self) -> bool:
-        return self.op == "OUT"
+        return self.op in ("OUT", "OT")
 
     @property
     def text(self) -> str:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional
 
+from . import dialects
 from .model import Branch, Contact, Instr, Output, Rung, parallel, series
 
 _PULSE = {"": "NO", "I": "NC", "P": "P", "F": "F", "PI": "PI", "FI": "FI"}
@@ -25,22 +26,24 @@ for _base, _kind in (("LD", "start"), ("AND", "and"), ("OR", "or")):
             _op = "ANI"
         CONTACT_OPS[_op] = (_kind, _ckind)
 
-_CMP_RE = re.compile(r"^(LD|AND|OR)([DE]|DE)?(=|<>|>=|<=|>|<)$")
+_CMP_RE = re.compile(r"^(LD|AND|OR|ST|AN)(D|E|DE|F)?(=|<>|>=|<=|>|<)$")
 
 # Instructions that need no input condition and stand on their own rung.
-UNCONDITIONAL = {"END", "FEND", "RET", "SRET", "IRET", "NEXT", "MCR", "EI", "DI", "BREAK"}
+UNCONDITIONAL = {"END", "FEND", "RET", "SRET", "IRET", "NEXT", "MCR", "EI", "DI", "BREAK",
+                 "ED", "CNDE", "MCE", "STPE"}
 IGNORED = {"NOP", "NOPLF", "PAGE"}
 POINTER_RE = re.compile(r"^[PI]\d+$")
 
 
 def classify(ins: Instr):
     """Return (kind, contact) where kind is start/and/or or None."""
-    if ins.op in CONTACT_OPS:
-        kind, ckind = CONTACT_OPS[ins.op]
+    op = dialects.canonical(ins.op)
+    if op in CONTACT_OPS:
+        kind, ckind = CONTACT_OPS[op]
         return kind, Contact(ins.args[0] if ins.args else "?", ckind)
     m = _CMP_RE.match(ins.op)
     if m:
-        kind = {"LD": "start", "AND": "and", "OR": "or"}[m.group(1)]
+        kind = {"LD": "start", "ST": "start", "AND": "and", "AN": "and", "OR": "or"}[m.group(1)]
         text = (m.group(2) or "") + m.group(3) + " " + " ".join(ins.args)
         return kind, Contact("", "CMP", text.strip())
     if ins.op == "STL":
@@ -55,6 +58,9 @@ class _RungBuilder:
         self.blocks: list = []
         self.mps: List[Branch] = []
         self.has_output = False
+        # True while blocks[0] continues from self.anchor (AND/DF right after an output) rather
+        # than from the left rail.
+        self.anchored = False
         self.rung = Rung(self.root, None, index, label)
 
     @property
@@ -69,6 +75,28 @@ class _RungBuilder:
     def warn(self, ins: Instr, msg: str):
         self.rung.warnings.append(f"line {ins.line} '{ins}': {msg}")
 
+    def _path_expr(self, target: Branch):
+        """Series of all branch expressions from the left rail down to `target`."""
+        def walk(br, acc):
+            acc = series(acc, br.expr)
+            if br is target:
+                return acc, True
+            for c in br.children:
+                if isinstance(c, Branch):
+                    found, ok = walk(c, acc)
+                    if ok:
+                        return found, True
+            return None, False
+        return walk(self.root, None)[0]
+
+    def _materialize(self):
+        """blocks[0] continues from the anchor; make it start at the left rail instead, so it
+        can be ORed with blocks that do (redraws the path to the anchor)."""
+        if self.anchored and self.blocks:
+            self.blocks[0] = series(self._path_expr(self.anchor), self.blocks[0])
+            self.anchor = self.root
+        self.anchored = False
+
     def _pending(self, ins: Instr):
         if len(self.blocks) > 1:
             self.warn(ins, f"{len(self.blocks)} unjoined logic blocks (missing ANB/ORB?) - joined in series")
@@ -76,6 +104,7 @@ class _RungBuilder:
         for b in self.blocks:
             cond = series(cond, b)
         self.blocks = []
+        self.anchored = False
         return cond
 
     def _attach_pending(self, ins: Instr):
@@ -85,24 +114,36 @@ class _RungBuilder:
             self.anchor.children.append(node)
             self.anchor = node
 
-    def feed(self, ins: Instr):
+    def feed(self, ins: Instr, detached: bool = False):
         self.add_source(ins)
-        op = ins.op
+        op = dialects.canonical(ins.op)
         kind, contact = classify(ins)
         if kind == "start":
+            if detached:
+                # new logic from the left rail inside a PSHS/POPS (MPS/MPP) section
+                self.anchor = self.root
             self.blocks.append(contact)
         elif kind == "and":
             if self.blocks:
                 self.blocks[-1] = series(self.blocks[-1], contact)
             else:
+                self.anchored = self.anchor is not self.root
                 self.blocks.append(contact)
         elif kind == "or":
             if self.blocks:
                 self.blocks[-1] = parallel(self.blocks[-1], contact)
+            elif self.anchor is not self.root:
+                # OR right after an output (allowed on Panasonic/Mitsubishi): the result so far is
+                # the whole path to the branch point. Redraw that path in parallel, from the rail.
+                path = self._path_expr(self.anchor)
+                self.anchor = self.root
+                self.blocks.append(parallel(path, contact))
             else:
                 self.warn(ins, "OR with nothing to connect to - treated as LD")
                 self.blocks.append(contact)
         elif op in ("ANB", "ORB"):
+            if op == "ORB" and len(self.blocks) == 2:
+                self._materialize()
             if len(self.blocks) >= 2:
                 b = self.blocks.pop()
                 a = self.blocks.pop()
@@ -111,10 +152,11 @@ class _RungBuilder:
                 self.warn(ins, "not enough logic blocks on the stack")
             # ANB with one block right after an output: block joins the branch point
         elif op in ("INV", "MEP", "MEF"):
-            c = Contact("", op)
+            c = Contact("", op, ins.op if ins.op != op else "")
             if self.blocks:
                 self.blocks[-1] = series(self.blocks[-1], c)
             else:
+                self.anchored = self.anchor is not self.root
                 self.blocks.append(c)
         elif op == "MPS":
             self._attach_pending(ins)
@@ -127,8 +169,20 @@ class _RungBuilder:
             else:
                 self.anchor = self.mps[-1] if op == "MRD" else self.mps.pop()
         else:  # output / applied instruction
-            self._attach_pending(ins)
-            self.anchor.children.append(Output(op, list(ins.args), ins.step))
+            out = Output(ins.op, list(ins.args), ins.step)
+            names = dialects.MULTI_INPUT.get(dialects.multi_input_key(ins.op))
+            if len(self.blocks) > 1 or (names and len(self.blocks) == len(names)):
+                self._materialize()
+                if not names:
+                    self.warn(ins, f"{len(self.blocks)} logic blocks feed this instruction - drawn as separate inputs")
+                elif len(names) != len(self.blocks):
+                    self.warn(ins, f"expected {len(names)} inputs, found {len(self.blocks)}")
+                out.inputs = self.blocks
+                out.input_names = (names or [])[:len(self.blocks)]
+                self.blocks = []
+            else:
+                self._attach_pending(ins)
+            self.anchor.children.append(out)
             self.has_output = True
 
     def finish(self) -> Rung:
@@ -147,15 +201,18 @@ def _ld_continues_rung(instrs: List[Instr], i: int) -> bool:
     depth = 0
     for ins in instrs[i:]:
         kind, _ = classify(ins)
+        op = dialects.canonical(ins.op)
         if kind == "start":
             depth += 1
-        elif ins.op == "ORB":
+        elif op == "ORB":
             depth -= 1
-        elif ins.op == "ANB":
+        elif op == "ANB":
             depth -= 1
             if depth == 0:
                 return True
-        elif kind is None and ins.op not in ("INV", "MEP", "MEF"):
+        elif op in IGNORED:
+            continue
+        elif kind is None and op not in ("INV", "MEP", "MEF"):
             return False  # reached an output / stack op first
     return False
 
@@ -174,21 +231,25 @@ def build(instrs: List[Instr]) -> List[Rung]:
     for i, ins in enumerate(instrs):
         if ins.op in IGNORED:
             continue
-        if POINTER_RE.match(ins.op) and not ins.args:
+        if (POINTER_RE.match(ins.op) and not ins.args) or ins.op in dialects.LABEL_OPS:
             close()
-            label = ins.op
+            label = str(ins)
             continue
         kind, _ = classify(ins)
-        if rb is not None and rb.has_output and kind == "start" and not rb.mps \
+        detached = False
+        if rb is not None and kind == "start" and not rb.blocks and (rb.mps or rb.has_output) \
                 and not _ld_continues_rung(instrs, i):
-            close()
+            if rb.mps:
+                detached = True
+            else:
+                close()
         if ins.op in UNCONDITIONAL and (rb is None or rb.empty or rb.has_output) \
                 and (rb is None or not rb.blocks):
             close()
         if rb is None:
             rb = _RungBuilder(len(rungs), label)
             label = ""
-        rb.feed(ins)
+        rb.feed(ins, detached)
         if ins.op in UNCONDITIONAL and len(rb.rung.source) == 1:
             close()
     close()

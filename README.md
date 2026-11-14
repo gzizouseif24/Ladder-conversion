@@ -1,7 +1,10 @@
 # Ladder conversion
 
 Converts PLC instruction-list code into ladder diagrams you can view.
-The first supported dialect is **Mitsubishi (GX Developer / GX Works, FX/A/Q series)**.
+
+Supported dialects (detected automatically):
+- **Mitsubishi** (GX Developer / GX Works, FX/A/Q series): LD, AND, ANB, MPS, OUT, ...
+- **Panasonic** (FPWIN GR "Boolean" view, FP0/FP0R/FP-X/FP2 ...): ST, AN/, ORS, PSHS, DF, OT, F0 (MV), TML, ED, ...
 
 ```bash
 python3 -m ladder examples/sample_fx.txt              # writes examples/sample_fx.html
@@ -29,4 +32,8 @@ LD/LDI/LDP/LDF/LDPI/LDFI, AND/ANI/ANDP/ANDF…, OR/ORI/ORP/ORF…, ANB, ORB, MPS
 compare contacts (`LD= D0 K10`, `ANDD>`, …), STL, pointers (`P0`), and any output/applied instruction
 (OUT, SET, RST, PLS, MOV, CJ, timers/counters with set values, …). END/FEND/RET… get their own rung.
 
-Not yet: MC/MCR nesting display, STL step-ladder bus drawing, device comments.
+Panasonic: ST/ST//AN/AN//OR/OR/, ANS/ORS, PSHS/RDS/POPS, DF/DF/, compare contacts (`ST >=`, `STD<=`, ...),
+OT/SET/RST, timers (TML/TMR/TMX/TMY), F/P instructions with their operands, ED. Instructions with several
+inputs (KP, CT, SR, F118 UDC, F119 LRSR) are drawn as one box with one row per input.
+
+Not yet: MC/MCR nesting display, step-ladder bus drawing, device comments.

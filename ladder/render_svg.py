@@ -18,7 +18,13 @@ CHAR_W = 7.6   # approx. width of one monospace character at 12.5px
 COIL_W = 64
 
 
+def _names_width(o) -> float:
+    return max((len(n) for n in o.input_names), default=0) * 6.4 + (12 if o.input_names else 0)
+
+
 def _out_width(o) -> float:
+    if o.inputs:
+        return _names_width(o) + len(o.text) * CHAR_W + 22
     if o.is_coil:
         return max(COIL_W, len(o.text) * CHAR_W + 34)
     return len(o.text) * CHAR_W + 22
@@ -52,8 +58,8 @@ def svg_rung(lay: Layout, out_w: float) -> str:
             _, x, y, c = p
             x0, x1, yy = X(x), X(x + c.width), Y(y)
             cx = (x0 + x1) / 2
-            if c.kind in ("CMP", "MEP", "MEF", "STL"):
-                label = c.text if c.kind == "CMP" else c.kind
+            if c.kind in ("CMP", "MEP", "MEF", "STL") or (c.kind == "INV" and c.text):
+                label = c.text or c.kind
                 bw = len(label) * CHAR_W + 16
                 line(x0, yy, cx - bw / 2, yy)
                 line(cx + bw / 2, yy, x1, yy)
@@ -81,11 +87,26 @@ def svg_rung(lay: Layout, out_w: float) -> str:
                          f'M{cx - 4:.1f} {yy + 3:.1f} L{cx:.1f} {yy + 8:.1f} L{cx + 4:.1f} {yy + 3:.1f}"/>')
             text(cx, yy - 18, c.device)
         elif kind == "output":
-            _, x, y, o = p
+            x, y, o = p[1], p[2], p[3]
             x0, yy = X(x), Y(y)
             ow = _out_width(o)
             bx = x0 + 12
             line(x0, yy, bx, yy)
+            rows = p[4] if len(p) > 4 else None
+            if rows:
+                y_last = Y(rows[-1])
+                for ry in rows[1:]:
+                    line(x0, Y(ry), bx, Y(ry))
+                    line(bx + ow, Y(ry), rail_x, Y(ry))
+                e.append(f'<rect class="box" x="{bx:.1f}" y="{yy - 12:.1f}" width="{ow:.1f}" '
+                         f'height="{y_last - yy + 24:.1f}" rx="2"/>')
+                for k, ry in enumerate(rows):
+                    if k < len(o.input_names):
+                        text(bx + 6, Y(ry) + 4, o.input_names[k], "pin", "start")
+                nw = _names_width(o)
+                text(bx + nw + (ow - nw) / 2, (yy + y_last) / 2 + 4.5, o.text, "box-t")
+                line(bx + ow, yy, rail_x, yy)
+                continue
             if o.is_coil:
                 r = 13
                 c1, c2 = bx + 6, bx + ow - 6
@@ -127,6 +148,7 @@ svg .sym{stroke:var(--sym);stroke-width:2;fill:none}
 svg .box{fill:var(--box);stroke:var(--boxline);stroke-width:1.4}
 svg text{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:var(--ink)}
 svg .box-t,svg .coil-t{font-weight:600}
+svg .pin{font-size:10.5px;fill:var(--muted)}
 details{margin-top:6px;font-size:12.5px;color:var(--muted)}
 details pre{margin:6px 0 0;font:12.5px ui-monospace,Menlo,Consolas,monospace;color:var(--ink)}
 .warn{color:var(--warn);font-size:12.5px;margin-top:4px}
