@@ -111,6 +111,11 @@ def layout(rung: Rung, out_col: int = None, min_out_col: int = 1) -> Layout:
 
 
 def layout_all(rungs: List[Rung], align: bool = True) -> List[Layout]:
-    """align=True puts every rung's outputs in the same column (like GX Developer)."""
-    col = max((logic_width(r.root) for r in rungs), default=1) if align else None
-    return [layout(r, col) for r in rungs]
+    """align=True puts the outputs of all rungs of a block (the whole program when there are no
+    blocks) in the same column, like the vendor editors."""
+    if not align:
+        return [layout(r) for r in rungs]
+    cols = {}
+    for r in rungs:
+        cols[r.block] = max(cols.get(r.block, 1), logic_width(r.root))
+    return [layout(r, cols[r.block]) for r in rungs]

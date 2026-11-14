@@ -1,5 +1,8 @@
 # Roadmap: next phase (Omron + Siemens)
 
+> **Status:** Siemens STL (steps 3 and 4) and folder input are done and tested on a real 10-block program.
+> Next: Omron (step 2), then the dialect restructure (step 1) when a fourth reader makes it worth it.
+
 ## Where we are
 
 Mitsubishi and Panasonic work end to end (PDF → ladder HTML). Both are **stack-based** instruction lists:

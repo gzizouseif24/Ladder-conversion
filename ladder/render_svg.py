@@ -13,7 +13,7 @@ from .layout import Layout
 CW = 84        # cell width (px)
 RH = 56        # row height (px)
 PAD_X = 14     # left margin before the left rail
-TOP = 26       # space above the first wire (for labels)
+TOP = 32       # space above the first wire (for labels)
 CHAR_W = 7.6   # approx. width of one monospace character at 12.5px
 COIL_W = 64
 
@@ -58,7 +58,7 @@ def svg_rung(lay: Layout, out_w: float) -> str:
             _, x, y, c = p
             x0, x1, yy = X(x), X(x + c.width), Y(y)
             cx = (x0 + x1) / 2
-            if c.kind in ("CMP", "MEP", "MEF", "STL") or (c.kind == "INV" and c.text):
+            if c.kind in ("CMP", "BOX", "MEP", "MEF", "STL") or (c.kind == "INV" and c.text):
                 label = c.text or c.kind
                 bw = len(label) * CHAR_W + 16
                 line(x0, yy, cx - bw / 2, yy)
@@ -115,7 +115,12 @@ def svg_rung(lay: Layout, out_w: float) -> str:
                 text(bx + ow / 2, yy + 4.5, o.text, "coil-t")
             else:
                 e.append(f'<rect class="box" x="{bx:.1f}" y="{yy - 12:.1f}" width="{ow:.1f}" height="24" rx="2"/>')
-                text(bx + ow / 2, yy + 4.5, o.text, "box-t")
+                if o.op == "CALL" and o.args:
+                    e.append(f'<a href="#blk-{_esc(o.args[0])}">')
+                    text(bx + ow / 2, yy + 4.5, o.text, "box-t link")
+                    e.append('</a>')
+                else:
+                    text(bx + ow / 2, yy + 4.5, o.text, "box-t")
             line(bx + ow, yy, rail_x, yy)
 
     line(X(0), 4, X(0), height - 4, "rail")
@@ -152,29 +157,67 @@ svg .pin{font-size:10.5px;fill:var(--muted)}
 details{margin-top:6px;font-size:12.5px;color:var(--muted)}
 details pre{margin:6px 0 0;font:12.5px ui-monospace,Menlo,Consolas,monospace;color:var(--ink)}
 .warn{color:var(--warn);font-size:12.5px;margin-top:4px}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+nav a{font-size:12.5px;color:var(--muted);text-decoration:none;border:1px solid var(--line);
+background:var(--card);border-radius:6px;padding:4px 8px}
+nav a b{color:var(--ink)} nav .w{color:var(--warn)}
+h2{font-size:16px;margin:26px 0 6px;scroll-margin-top:12px}
+svg a .link{fill:var(--accent);text-decoration:underline}
 """
 
 
+def _rung_html(lay: Layout, out_w: float) -> str:
+    r = lay.rung
+    if r.network:
+        head = f'<b>{_esc(r.network)}</b>' if r.source else '<span>(continued)</span>'
+    else:
+        head = f'<b>Rung {r.index}</b>'
+    if r.start_step is not None:
+        head += f'<span>step {r.start_step}</span>'
+    if r.label:
+        head += f'<span class="lbl">{_esc(r.label)}</span>'
+    warns = "".join(f'<div class="warn">⚠ {_esc(w)}</div>' for w in r.warnings)
+    src = ""
+    if r.source:
+        lines = "\n".join(_esc(str(i)) for i in r.source)
+        src = f'<details><summary>Instruction list</summary><pre>{lines}</pre></details>'
+    return (f'<section class="rung"><div class="head">{head}</div>'
+            f'<div class="scroll">{svg_rung(lay, out_w)}</div>{warns}{src}</section>')
+
+
 def render_html(layouts: List[Layout], title: str = "Ladder") -> str:
-    outs = [p[3] for l in layouts for p in l.prims if p[0] == "output"]
-    out_w = max((_out_width(o) for o in outs), default=COIL_W)
+    widths = {}  # output column width per block, so the right rail lines up within a block
+    for l in layouts:
+        for p in l.prims:
+            if p[0] == "output":
+                widths[l.rung.block] = max(widths.get(l.rung.block, COIL_W), _out_width(p[3]))
     n_warn = sum(len(l.rung.warnings) for l in layouts)
     body = []
+    blocks = []  # (block, title, [layouts])
     for lay in layouts:
-        r = lay.rung
-        head = f'<b>Rung {r.index}</b>'
-        if r.start_step is not None:
-            head += f'<span>step {r.start_step}</span>'
-        if r.label:
-            head += f'<span class="lbl">{_esc(r.label)}</span>'
-        src = "\n".join(_esc(str(i)) for i in r.source)
-        warns = "".join(f'<div class="warn">⚠ {_esc(w)}</div>' for w in r.warnings)
-        body.append(f'<section class="rung"><div class="head">{head}</div>'
-                    f'<div class="scroll">{svg_rung(lay, out_w)}</div>{warns}'
-                    f'<details><summary>Instruction list</summary><pre>{src}</pre></details></section>')
-    summary = f"{len(layouts)} rungs" + (f" · {n_warn} warnings" if n_warn else "")
+        b = lay.rung.block
+        if not blocks or blocks[-1][0] != b:
+            blocks.append((b, lay.rung.block_title or b, []))
+        blocks[-1][2].append(lay)
+    nav = ""
+    if len(blocks) > 1 or blocks and blocks[0][0]:
+        items = []
+        for b, t, lays in blocks:
+            nets = len({l.rung.network for l in lays})
+            w = sum(len(l.rung.warnings) for l in lays)
+            extra = f" · {nets} networks" if any(l.rung.network for l in lays) else f" · {len(lays)} rungs"
+            extra += f' · <span class="w">{w} ⚠</span>' if w else ""
+            items.append(f'<a href="#blk-{_esc(b)}"><b>{_esc(t)}</b>{extra}</a>')
+        nav = '<nav>' + "".join(items) + '</nav>'
+        for b, t, lays in blocks:
+            body.append(f'<h2 id="blk-{_esc(b)}">{_esc(t)}</h2>')
+            body.extend(_rung_html(l, widths.get(b, COIL_W)) for l in lays)
+    else:
+        body.extend(_rung_html(l, widths.get(l.rung.block, COIL_W)) for l in layouts)
+    summary = (f"{len(blocks)} blocks · " if nav else "") + f"{len(layouts)} rungs" \
+        + (f" · {n_warn} warnings" if n_warn else "")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{_esc(title)}</title><style>{CSS}</style></head><body>'
-            f'<header><h1>{_esc(title)}</h1><p>{summary}</p></header><main>'
+            f'<header><h1>{_esc(title)}</h1><p>{summary}</p>{nav}</header><main>'
             + "".join(body) + "</main></body></html>")

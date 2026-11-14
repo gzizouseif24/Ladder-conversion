@@ -21,10 +21,12 @@ class Contact:
     # INV, MEP, MEF, STL
     kind: str = "NO"
     text: str = ""  # extra text, e.g. "= D0 K100" for compare contacts
+    # Siemens: a function box drawn inside the rung (EN/ENO, timer S/Q); see siemens._Box
+    box: object = field(default=None, compare=False, repr=False)
 
     @property
     def width(self) -> int:
-        if self.kind == "CMP":
+        if self.kind in ("CMP", "BOX"):
             return max(2, -(-(len(self.text) + 4) // 9))
         return 1
 
@@ -54,7 +56,7 @@ class Output:
 
     @property
     def is_coil(self) -> bool:
-        return self.op in ("OUT", "OT")
+        return self.op in ("OUT", "OT", "=")
 
     @property
     def text(self) -> str:
@@ -90,6 +92,9 @@ class Rung:
     label: str = ""
     source: List[Instr] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    block: str = ""        # Siemens: "FC1" (or the file name when converting a folder)
+    block_title: str = ""  # "FC1 · MANUELL"
+    network: str = ""      # "Network 3: title"
 
 
 def series(a: Expr, b: Expr) -> Expr:

@@ -58,7 +58,7 @@ def render_rung(lay: Layout, out_width: int = None) -> str:
         elif p[0] == "contact":
             _, x, y, c = p
             w = c.width * CELL
-            if c.kind == "CMP" or (c.text and c.kind in ("MEP", "MEF", "INV")):
+            if c.kind in ("CMP", "BOX") or (c.text and c.kind in ("MEP", "MEF", "INV")):
                 sym = f"[{c.text}]"
             else:
                 sym = _SYMBOL.get(c.kind, "| |")
@@ -96,9 +96,13 @@ def render(layouts: List[Layout]) -> str:
     outs = [p[3] for l in layouts for p in l.prims if p[0] == "output"]
     out_width = max((len(_out_text(o)) for o in outs), default=4) + 2
     parts = []
+    block = None
     for lay in layouts:
         r = lay.rung
-        head = f"Rung {r.index}"
+        if r.block and r.block != block:
+            block = r.block
+            parts.append(f"===== {r.block_title or r.block} =====\n")
+        head = (r.network if r.source else "  (continued)") if r.network else f"Rung {r.index}"
         if r.start_step is not None:
             head += f"  (step {r.start_step})"
         if r.label:
