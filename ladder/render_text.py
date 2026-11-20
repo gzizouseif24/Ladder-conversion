@@ -108,6 +108,11 @@ def render(layouts: List[Layout]) -> str:
         if r.label:
             head += f"  [{r.label}]"
         parts.append(head)
+        if getattr(r, "stl_only", ""):
+            parts.append(f"  [kept as STL: {r.stl_only}]")
+            parts.extend("      " + str(i) for i in r.source)
+            parts.append("")
+            continue
         parts.append(render_rung(lay, out_width))
         for w in r.warnings:
             parts.append(f"  ! {w}")

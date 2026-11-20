@@ -102,7 +102,10 @@ def main(argv=None) -> int:
     with open(out, "w", encoding="utf-8") as f:
         f.write(render_html(layouts, os.path.basename(os.path.normpath(args.input))))
     warns = sum(len(r.warnings) for r in rungs)
-    print(f"{len(rungs)} rungs -> {out}" + (f" ({warns} warnings)" if warns else ""))
+    stl = sum(1 for r in rungs if r.stl_only)
+    extra = [f"{stl} networks kept as STL"] if stl else []
+    extra += [f"{warns} warnings"] if warns else []
+    print(f"{len(rungs) - stl} rungs -> {out}" + (f" ({', '.join(extra)})" if extra else ""))
     return 0
 
 

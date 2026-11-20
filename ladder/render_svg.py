@@ -141,7 +141,8 @@ header{padding:20px 16px 8px;max-width:1200px;margin:auto}
 h1{font-size:18px;margin:0 0 4px}
 header p{margin:0;color:var(--muted)}
 main{max-width:1200px;margin:auto;padding:8px 16px 40px}
-.rung{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:10px 12px}
+.rung{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:10px 12px;
+content-visibility:auto;contain-intrinsic-size:auto 150px}
 .head{display:flex;gap:12px;align-items:baseline;font-size:12.5px;color:var(--muted)}
 .head b{color:var(--ink)}
 .head .lbl{color:var(--accent);font-weight:600}
@@ -160,7 +161,13 @@ details pre{margin:6px 0 0;font:12.5px ui-monospace,Menlo,Consolas,monospace;col
 nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 nav a{font-size:12.5px;color:var(--muted);text-decoration:none;border:1px solid var(--line);
 background:var(--card);border-radius:6px;padding:4px 8px}
-nav a b{color:var(--ink)} nav .w{color:var(--warn)}
+nav a b{color:var(--ink)} nav .w{color:var(--warn)} nav .s{color:var(--accent)}
+.rung.stl{border-style:dashed}
+.stl-tag{font:600 11px ui-monospace,Menlo,Consolas,monospace;color:var(--accent);border:1px solid var(--accent);
+border-radius:4px;padding:0 5px}
+.why{font-size:12.5px;color:var(--muted);margin:6px 0}
+pre.code{margin:0;padding:8px 10px;background:var(--bg);border-radius:6px;overflow-x:auto;
+font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--ink)}
 h2{font-size:16px;margin:26px 0 6px;scroll-margin-top:12px}
 svg a .link{fill:var(--accent);text-decoration:underline}
 """
@@ -177,10 +184,13 @@ def _rung_html(lay: Layout, out_w: float) -> str:
     if r.label:
         head += f'<span class="lbl">{_esc(r.label)}</span>'
     warns = "".join(f'<div class="warn">⚠ {_esc(w)}</div>' for w in r.warnings)
-    src = ""
-    if r.source:
-        lines = "\n".join(_esc(str(i)) for i in r.source)
-        src = f'<details><summary>Instruction list</summary><pre>{lines}</pre></details>'
+    lines = "\n".join(_esc(str(i)) for i in r.source)
+    if getattr(r, "stl_only", ""):
+        head += '<span class="stl-tag">STL</span>'
+        return (f'<section class="rung stl"><div class="head">{head}</div>'
+                f'<div class="why">Kept as STL: {_esc(r.stl_only)}. STEP 7 cannot show this network in LAD either.</div>'
+                f'{warns}<pre class="code">{lines}</pre></section>')
+    src = f'<details><summary>Instruction list</summary><pre>{lines}</pre></details>' if r.source else ""
     return (f'<section class="rung"><div class="head">{head}</div>'
             f'<div class="scroll">{svg_rung(lay, out_w)}</div>{warns}{src}</section>')
 
@@ -192,6 +202,7 @@ def render_html(layouts: List[Layout], title: str = "Ladder") -> str:
             if p[0] == "output":
                 widths[l.rung.block] = max(widths.get(l.rung.block, COIL_W), _out_width(p[3]))
     n_warn = sum(len(l.rung.warnings) for l in layouts)
+    n_stl = sum(1 for l in layouts if getattr(l.rung, "stl_only", ""))
     body = []
     blocks = []  # (block, title, [layouts])
     for lay in layouts:
@@ -205,7 +216,9 @@ def render_html(layouts: List[Layout], title: str = "Ladder") -> str:
         for b, t, lays in blocks:
             nets = len({l.rung.network for l in lays})
             w = sum(len(l.rung.warnings) for l in lays)
+            st = sum(1 for l in lays if getattr(l.rung, "stl_only", ""))
             extra = f" · {nets} networks" if any(l.rung.network for l in lays) else f" · {len(lays)} rungs"
+            extra += f' · <span class="s">{st} STL</span>' if st else ""
             extra += f' · <span class="w">{w} ⚠</span>' if w else ""
             items.append(f'<a href="#blk-{_esc(b)}"><b>{_esc(t)}</b>{extra}</a>')
         nav = '<nav>' + "".join(items) + '</nav>'
@@ -214,7 +227,8 @@ def render_html(layouts: List[Layout], title: str = "Ladder") -> str:
             body.extend(_rung_html(l, widths.get(b, COIL_W)) for l in lays)
     else:
         body.extend(_rung_html(l, widths.get(l.rung.block, COIL_W)) for l in layouts)
-    summary = (f"{len(blocks)} blocks · " if nav else "") + f"{len(layouts)} rungs" \
+    summary = (f"{len(blocks)} blocks · " if nav else "") + f"{len(layouts) - n_stl} rungs" \
+        + (f" · {n_stl} networks kept as STL" if n_stl else "") \
         + (f" · {n_warn} warnings" if n_warn else "")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'

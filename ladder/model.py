@@ -28,6 +28,8 @@ class Contact:
     def width(self) -> int:
         if self.kind in ("CMP", "BOX"):
             return max(2, -(-(len(self.text) + 4) // 9))
+        if len(self.device) > 8:            # long symbolic names (#STAT36.STAT37.STAT39)
+            return -(-(len(self.device) + 2) // 10)
         return 1
 
 
@@ -95,6 +97,7 @@ class Rung:
     block: str = ""        # Siemens: "FC1" (or the file name when converting a folder)
     block_title: str = ""  # "FC1 · MANUELL"
     network: str = ""      # "Network 3: title"
+    stl_only: str = ""     # Siemens: why this network is shown as STL instead of ladder
 
 
 def series(a: Expr, b: Expr) -> Expr:

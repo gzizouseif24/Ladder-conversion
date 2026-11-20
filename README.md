@@ -96,7 +96,7 @@ The HTML page has an index of blocks at the top (Siemens OB/FC/FB, or one entry 
 | tall box `ZV` `ZR` `R` | Siemens counter (Z_VORW / Z_RUECK / ZAEHLER), one input row per pin. `DEZ→MW230` / `DUAL→` are its outputs |
 | `[>=I MW230 3]` | Siemens comparison in the rung |
 | `[JMP M001 (SPB)]` | jump to the network labelled `M001:` |
-| `STL` box + ⚠ | Siemens network that can't be drawn as ladder (e.g. TAK, indirect addressing): read its instruction list |
+| dashed card with **STL** tag | Siemens network kept as STL, with the reason and its code shown. These are things ladder (and STEP 7's own LAD view) cannot show: address registers (LAR1/TAR1), TAK, jump lists (SPL), jumps on math status (SPZ/SPP), a value or result that depends on which jump was taken, labels jumped to from another network |
 | ⚠ warning under a rung | the instruction list did something that could not be drawn exactly. Check that rung by hand |
 
 Two things look different from the vendor editor on purpose:
@@ -141,10 +141,13 @@ END/FEND/RET get their own rung.
 (`ST >=`, `STD<=` ...), OT/SET/RST/KP, timers TML/TMR/TMX/TMY, CT, SR, any `F`/`P` instruction with its
 operands (`F0 (MV)`, `F118 (UDC)` ...), ED/CNDE, labels (LBL, SUB, INT, SSTP). NOP is skipped.
 
-**Siemens STL (German/English):** U/A, UN/AN, O, ON, O alone, U(/A( … ), FP/FN, NOT, =, S, R, all S5 timers
+**Siemens STL (German/English):** U/A, UN/AN, O, ON, X/XN, O alone, U(/A( … ), FP/FN, NOT, SET, CLR, =, S, R, all S5 timers
 (SI/SV/SE/SS/SA = SP/SE/SD/SS/SF) with R/DUAL/DEZ pins, counters ZV/ZR/S/R/L/LC, comparisons (==I … <=D, R),
-L/T and arithmetic (+I … /R), EN/ENO sections (SPBNB … `U BIE`), jumps (SPB, SPBN, SPA …), UC/CC/CALL, BE/BEB.
-Not drawn (network shown as STL): TAK, indirect addressing, accumulator juggling, XOR.
+L/T and arithmetic (+I … /R, + k, INC/DEC), word logic (UW/OW/XOW/UD/OD/XOD), shifts, conversions (ITD, DTR, …),
+AUF DB, EN/ENO sections (SPBNB … `U BIE`), CALL with parameter lists, UC/CC, BE/BEB/BEA.
+Hand-written jump logic is converted when it has a clean ladder meaning: a forward jump section becomes one rung
+(its condition drawn once, outputs branching off), if/else (`SPB L1 … SPA L2 / L1: … / L2:`), early exits,
+and `BEA`/`BEB` in the middle of a network.
 
 **Not yet:** Omron. MC/MCR (master control) drawn as a zone, step-ladder bus drawing, device comments/symbols
 next to contacts.

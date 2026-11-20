@@ -238,11 +238,12 @@ class SiemensTests(unittest.TestCase):
     def test_unsupported_network_falls_back_to_stl(self):
         (r,) = self.net(10)
         self.assertEqual(r.root.children[0].op, "STL")
-        self.assertIn("TAK", r.warnings[0])
+        self.assertIn("TAK", r.stl_only)
 
     def test_after_be_padding_ignored(self):
         self.assertEqual(self.net(12), [])
-        self.assertEqual(sum(len(r.warnings) for r in self.rungs), 1)  # only the TAK network
+        self.assertEqual(sum(len(r.warnings) for r in self.rungs), 0)
+        self.assertEqual([r.network for r in self.rungs if r.stl_only], ["Network 10"])  # TAK
 
     def test_english_mnemonics(self):
         (r,) = siemens.convert_text(ENGLISH)
@@ -250,6 +251,117 @@ class SiemensTests(unittest.TestCase):
         self.assertEqual(c.items[:2], [Contact("I0.0"), Contact("I0.1", "NC")])
         self.assertEqual(c.items[2].text, "S_ODT T1 S5T#2S")  # English SD = on-delay
         self.assertEqual(r.block, "OB1")
+
+
+HANDWRITTEN = """FUNCTION_BLOCK FB 9
+TITLE =
+BEGIN
+NETWORK
+TITLE =if-else with SPA
+
+      U     E      0.0;
+      SPB   M001;
+      L     1;
+      T     MW    10;
+      SPA   M002;
+M001: L     2;
+      T     MW    10;
+M002: U     E      0.1;
+      =     A      0.0;
+NETWORK
+TITLE =CALL with parameters, CLR, BEA in the middle
+
+      L     #IN0;
+      L     0;
+      <>I   ;
+      SPB   M003;
+      CALL FB   100 , DB   100 (
+           IN0                      := 0,
+           IN1                      := #X);
+      CLR   ;
+      =     M      5.0;
+      BEA   ;
+M003: SET   ;
+      S     M      5.1;
+NETWORK
+TITLE =early exit
+
+      U     E      1.0;
+      SPB   M004;
+      U     E      1.1;
+      SPB   M005;
+      =     M      6.0;
+M004: =     M      6.1;
+M005: NOP   0;
+NETWORK
+TITLE =value chosen by a jump
+
+      U     E      2.0;
+      L     MW    20;
+      SPB   M006;
+      L     MW    22;
+M006: T     MW    24;
+NETWORK
+TITLE =xor and word logic
+
+      U     E      3.0;
+      X     E      3.1;
+      =     M      7.0;
+      L     MW    30;
+      L     W#16#FF;
+      UW    ;
+      T     MW    32;
+      L     MW    34;
+      ITD   ;
+      T     MD    36;
+END_FUNCTION_BLOCK
+"""
+
+
+class HandwrittenSTLTests(unittest.TestCase):
+    def setUp(self):
+        self.rungs = siemens.convert_text(HANDWRITTEN)
+
+    def net(self, n):
+        return [r for r in self.rungs if r.network.split(":")[0] == f"Network {n}"]
+
+    def test_if_else(self):
+        r_else, r_then, r_after = self.net(1)
+        self.assertEqual(r_else.root.children[0].expr, Contact("E0.0", "NC"))   # jump not taken
+        self.assertEqual(r_else.root.children[0].children[0].text, "MOVE 1 → MW10")
+        self.assertEqual(r_then.root.children[0].expr, Contact("E0.0"))         # jumped to M001
+        self.assertEqual(r_then.root.children[0].children[0].text, "MOVE 2 → MW10")
+        self.assertEqual(r_after.root.children[0].expr, Contact("E0.1"))        # both paths meet
+
+    def test_call_params_clr_bea(self):
+        r_sec, r_after = self.net(2)
+        sec = r_sec.root.children[0]
+        self.assertEqual(sec.expr, Contact("", "CMP", "==I #IN0 0"))   # NOT(<>I) written as ==I
+        self.assertEqual(sec.children[0].text, "CALL FB100,DB100 (IN0 := 0, IN1 := #X)")
+        self.assertEqual(sec.children[1].expr.text, "0")              # CLR: RLO = 0
+        self.assertEqual(sec.children[2].text, "BEA")
+        # BEA ended the run-through path: after M003 only the jump (<>I) arrives
+        self.assertEqual(r_after.root.children[0].expr, Contact("", "CMP", "<>I #IN0 0"))
+        self.assertEqual(r_after.root.children[0].children[0].text, "S M5.1")
+
+    def test_early_exit(self):
+        rungs = self.net(3)
+        self.assertEqual(rungs[0].stl_only, "")
+        m61 = rungs[-1].root.children[0]
+        # M6.1 runs when jumped to M004 (E1.0) or when the jump to M005 was not taken
+        self.assertEqual(m61.expr, Parallel([Contact("E1.0"), Contact("E1.1", "NC")]))
+
+    def test_value_chosen_by_jump_stays_stl(self):
+        (r,) = self.net(4)
+        self.assertIn("depends on which jump", r.stl_only)
+
+    def test_xor_and_word_logic(self):
+        r_xor, r_words = self.net(5)
+        r_and, r_itd = [type("R", (), {"root": type("B", (), {"children": [c]})}) for c in r_words.root.children]
+        self.assertEqual(r_xor.root.children[0].expr, Parallel([
+            Series([Contact("E3.0"), Contact("E3.1", "NC")]), Series([Contact("E3.0", "NC"), Contact("E3.1")])]))
+        self.assertEqual(r_and.root.children[0].text, "WAND_W MW30 W#16#FF → MW32")
+        self.assertEqual(r_itd.root.children[0].text, "I_DI MW34 → MD36")
 
 
 if __name__ == "__main__":
